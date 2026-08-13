@@ -791,10 +791,11 @@ void drawThemeSettingsScreen() {
 
 void drawScreenLocked() {
     tft.fillScreen(TFT_BLACK);
-    tft.fillRoundRect(10, 10, 44, 44, 5, TFT_RED);
-    tft.drawRoundRect(10, 10, 44, 44, 5, TFT_WHITE);
-    tft.fillRoundRect(SCREEN_W - 54, 10, 44, 44, 5, TFT_DARKGREY);
-    tft.drawRoundRect(SCREEN_W - 54, 10, 44, 44, 5, TFT_RED);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawCentreString("TAP", SCREEN_W / 2, SCREEN_H / 2 - 16, 4);
+    tft.setTextColor(TFT_LIGHTGREY);
+    tft.drawCentreString("TO WAKE", SCREEN_W / 2, SCREEN_H / 2 + 18, 2);
 }
 
 void drawInfoScreen() {
@@ -1796,12 +1797,10 @@ void loop() {
         int y = INVERT_TOUCH_Y ? (SCREEN_H - rawY) : rawY;
 
         if (screenLocked) {
-            if (x <= 70 && y <= 70) {
-                screenLocked = false;
-                lastScreenActivity = millis();
-                applyScreenBrightness();
-                drawCurrentStateUI();
-            }
+            screenLocked = false;
+            lastScreenActivity = millis();
+            applyScreenBrightness();
+            drawCurrentStateUI();
             vTaskDelay(pdMS_TO_TICKS(10));
             return;
         }
