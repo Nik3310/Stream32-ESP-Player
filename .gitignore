@@ -1,0 +1,24 @@
+# Arduino build and editor files
+*.elf
+*.hex
+*.bin
+*.map
+*.eep
+*.lst
+*.o
+*.d
+build/
+libraries/
+.arduinoIDE/
+.vscode/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# Local secrets and generated assets
+secrets.h
+private/
+data/
