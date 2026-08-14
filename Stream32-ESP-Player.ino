@@ -1111,7 +1111,11 @@ int32_t get_sound_data(Frame *data, int32_t frame_count) {
             fetched++;
         } else break;
     }
-    return fetched;
+    // Fill a temporarily empty callback frame with silence so A2DP never sees a short frame.
+    if (fetched < frame_count) {
+        memset(&data[fetched], 0, (frame_count - fetched) * sizeof(Frame));
+    }
+    return frame_count;
 }
 
 // =====================================================================================
@@ -1617,7 +1621,8 @@ void setup() {
     
     tft.fillScreen(COLOR_BG);
     drawHeader("SYSTEM START", false);
-    tft.drawCentreString("Loading SD Card...", SCREEN_W / 2, 110, 2);
+    tft.setTextColor(COLOR_TEXT_PRIMARY, COLOR_BG);
+    tft.drawCentreString("TF Initialization...", SCREEN_W / 2, 110, 2);
 
     touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
     touchscreen.begin(touchscreenSPI);
