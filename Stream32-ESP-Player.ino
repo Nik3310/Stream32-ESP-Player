@@ -413,7 +413,7 @@ void switchTrack(int direction) {
         is_playing = false;
     }
 
-    if (currentState == STATE_PLAYER) {
+    if (currentState == STATE_PLAYER && !screenLocked) {
         drawCurrentStateUI();
     }
 }
@@ -1772,11 +1772,11 @@ void loop() {
         btScanActive = false;
         a2dp_source.cancel_discovery();
         a2dp_source.set_ssid_callback(nullptr);
-        drawCurrentStateUI();
+        if (!screenLocked) drawCurrentStateUI();
     }
     if (currentState == STATE_BT_SCAN && btScanCount != last_scan_count) {
         last_scan_count = btScanCount;
-        drawCurrentStateUI();
+        if (!screenLocked) drawCurrentStateUI();
     }
 
     // Периодическая проверка статуса Bluetooth (раз в 1.5 сек)
@@ -1810,13 +1810,13 @@ void loop() {
                 xQueueReset(pcm_frame_queue);
                 is_playing = true;
             }
-            drawCurrentStateUI(); 
+            if (!screenLocked) drawCurrentStateUI(); 
         }
         last_bt_status_check = now;
     }
 
     // Обновление прогресс-бара
-    if (is_playing && currentState == STATE_PLAYER && (now - last_progress_update > 400)) {
+    if (!screenLocked && is_playing && currentState == STATE_PLAYER && (now - last_progress_update > 400)) {
         updateProgressBar();
         last_progress_update = now;
     }
