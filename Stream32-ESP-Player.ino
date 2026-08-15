@@ -177,6 +177,7 @@ static volatile bool decoder_reset_requested = false;
 
 static volatile size_t g_file_size = 0;
 static volatile size_t g_file_bytes_read = 0;
+static unsigned long last_resume_save = 0;
 
 // =====================================================================================
 // Playlist, favorites, and volume state.
@@ -203,9 +204,7 @@ constexpr const char* PLAYER_VERSION = "0.0.10-beta";
 // Device order used by the Bluetooth selector.
 // =============================================================================
 const char* const BT_DEVICES[] = {
-    "BD2",
-    "CMF Buds Pro 2",
-    "G435 Bluetooth Gaming Headset"
+    "Bluetooth Device"
 };
 constexpr uint8_t BT_DEVICE_COUNT = sizeof(BT_DEVICES) / sizeof(BT_DEVICES[0]);
 
@@ -386,8 +385,17 @@ void toggleLike() {
     updateLikeButton();
 }
 
+void saveResumeState() {
+    if (total_tracks == 0 || g_file_size == 0) return;
+    preferences.begin("resume_pref", false);
+    preferences.putString("track", playlist[current_track_index]);
+    preferences.putUInt("bytes", (uint32_t)g_file_bytes_read);
+    preferences.end();
+}
+
 void switchTrack(int direction) {
     if (total_tracks == 0) return;
+    saveResumeState();
 
     bool wasPlaying = is_playing;
     is_playing = false;
@@ -1300,6 +1308,7 @@ void processGlobalTouch(int x, int y) {
                 if (wasPlaying) {
                     is_playing = false;
                     play_requested = false;
+                    saveResumeState();
                 } else {
                     play_requested = true;
                     if (bt_audio_started) {
@@ -1450,6 +1459,7 @@ void processGlobalTouch(int x, int y) {
                 preferences.begin("bt_pref", false); preferences.clear(); preferences.end();
                 preferences.begin("vol_pref", false); preferences.clear(); preferences.end();
                 preferences.begin("play_pref", false); preferences.clear(); preferences.end();
+                preferences.begin("resume_pref", false); preferences.clear(); preferences.end();
                 preferences.begin("screen_pref", false); preferences.clear(); preferences.end();
                 autoPlayEnabled = false;
                 bt_volume = 70;
@@ -1588,10 +1598,23 @@ void setup() {
     loadPlaylist();
     if (total_tracks > 0) {
         loadLikes();
-        audioFile = SD.open(playlist[0].c_str());
+        String resumeTrack = "";
+        uint32_t resumeBytes = 0;
+        preferences.begin("resume_pref", true);
+        resumeTrack = preferences.getString("track", "");
+        resumeBytes = preferences.getUInt("bytes", 0);
+        preferences.end();
+        current_track_index = 0;
+        for (int i = 0; i < total_tracks; i++) {
+            if (playlist[i] == resumeTrack) { current_track_index = i; break; }
+        }
+        audioFile = SD.open(playlist[current_track_index].c_str());
         if (audioFile) {
             g_file_size = audioFile.size();
-            g_file_bytes_read = 0;
+            size_t maxResume = g_file_size > 4096 ? (size_t)g_file_size - 4096 : (size_t)0;
+            size_t safeResume = resumeBytes > maxResume ? maxResume : resumeBytes;
+            if (safeResume > 0) audioFile.seek(safeResume);
+            g_file_bytes_read = safeResume;
             is_playing = false;
         }
     }
@@ -1649,6 +1672,10 @@ void loop() {
     if (!screenLocked && screenTimeoutMinutes > 0 && now - lastScreenActivity >= (unsigned long)screenTimeoutMinutes * 60000UL) {
         screenLocked = true;
         drawScreenLocked();
+    }
+    if (is_playing && now - last_resume_save > 5000) {
+        saveResumeState();
+        last_resume_save = now;
     }
     if (now - last_audio_debug > 2000) {
         last_audio_debug = now;
