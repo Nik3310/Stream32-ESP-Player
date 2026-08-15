@@ -7,7 +7,7 @@
 #include <SD.h>
 #include <TFT_eSPI.h>            
 #include <XPT2046_Touchscreen.h> 
-// Persistent settings for volume and Bluetooth device selection.
+#include <Preferences.h>         // Persistent settings storage.
 #include "BluetoothA2DPSource.h"
 #include "esp_gap_bt_api.h"
 
@@ -15,7 +15,7 @@
 #include "minimp3.h"
 
 // =====================================================================================
-// Interface pins and hardware configuration.
+// Hardware pins and interface configuration.
 // =====================================================================================
 constexpr uint8_t SD_CS = 5;
 #define XPT2046_IRQ 36
@@ -30,7 +30,7 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 Preferences preferences;
 
 // =====================================================================================
-// User interface states and navigation.
+// User interface state machine.
 // =====================================================================================
 enum UIState {
     STATE_MENU,
@@ -49,7 +49,7 @@ enum UIState {
 UIState currentState = STATE_MENU;
 
 // =====================================================================================
-// Color theme definitions.
+// Color theme configuration.
 // =====================================================================================
 static uint16_t COLOR_BG;             
 static uint16_t COLOR_PANEL;          
@@ -111,9 +111,9 @@ void applyTheme(uint8_t theme) {
 }
 
 // =====================================================================================
-// Display geometry and layout constants.
+// Display geometry and layout.
 // =====================================================================================
-// Portrait orientation: the display is rotated 90 degrees clockwise.
+// Portrait display orientation.
 constexpr int SCREEN_W = 240;
 constexpr int SCREEN_H = 320;
 
@@ -126,25 +126,25 @@ constexpr int MENU_BTN_Y[3] = {48, 128, 208};
 constexpr int NAV_Y = 280;
 constexpr int NAV_H = 40;
 
-// Cover art panel dimensions.
+// Cover art dimensions.
 constexpr int PL_ART_X = 65, PL_ART_Y = 38, PL_ART_W = 110, PL_ART_H = 110;
 
-// Track information area.
+// Track information layout.
 constexpr int PL_INFO_X = 20;
 constexpr int PL_TITLE_Y = 153;
 constexpr int PL_ARTIST_Y = 174;
 constexpr int PL_HEART_CX = 220, PL_HEART_CY = 158, PL_HEART_R = 9;
 
-// Playback progress bar layout.
+// Progress bar layout.
 constexpr int PL_PROGRESS_X = 20, PL_PROGRESS_Y = 191, PL_PROGRESS_W = 200, PL_PROGRESS_H = 8;
 
-// Playback control button layout.
+// Playback control layout.
 constexpr int PL_BTN_Y = 207, PL_BTN_H = 32;
 constexpr int PL_PREV_X = 25, PL_PREV_W = 45;
 constexpr int PL_PLAY_X = 97, PL_PLAY_W = 46;
 constexpr int PL_NEXT_X = 170, PL_NEXT_W = 45;
 
-// Volume controls and labels.
+// Volume control layout.
 constexpr int PL_VOL_Y = 245, PL_VOL_H = 25;
 constexpr int PL_VOLDOWN_X = 20, PL_VOLDOWN_W = 40;
 constexpr int PL_VOLUP_X = 180, PL_VOLUP_W = 40;
@@ -157,7 +157,7 @@ constexpr int LIST_ITEM_Y_START = 45;
 constexpr int LIST_ITEM_GAP = 2;
 
 // =====================================================================================
-// MP3 decoder and audio buffers.
+// Decoder and audio buffers.
 // =====================================================================================
 #define READ_BUF_SIZE 2048
 static uint8_t mp3_read_buf[READ_BUF_SIZE];
@@ -199,9 +199,9 @@ static bool autoPlayEnabled = false;
 constexpr const char* PLAYER_VERSION = "0.0.10-beta";
 
 // =============================================================================
-// Available Bluetooth device names.
-// Add new Bluetooth device names here.
-// Device order used by the Bluetooth selector.
+// Default Bluetooth device names.
+// Bluetooth device selector order.
+// Bluetooth callback declarations.
 // =============================================================================
 const char* const BT_DEVICES[] = {
     "Bluetooth Device"
@@ -244,7 +244,7 @@ void onBluetoothAudioState(esp_a2d_audio_state_t state, void *obj) {
     }
 }
 
-// Function declarations used by the UI and audio tasks.
+// Seek support for the current track.
 void drawCurrentStateUI();
 void updatePlayPauseButton();
 void updateLikeButton();
@@ -260,7 +260,7 @@ void startBluetoothScan();
 void selectBluetoothScanResult(uint8_t index);
 
 // =====================================================================================
-// Safe seek operation for the current track.
+// Load tracks from the SD card.
 // =====================================================================================
 void seekToRatio(float ratio) {
     if (g_file_size == 0 || !audioFile) return;
@@ -280,7 +280,7 @@ void seekToRatio(float ratio) {
 }
 
 // =====================================================================================
-// Load MP3 files from the SD card.
+// Start the selected Bluetooth device.
 // =====================================================================================
 String trackDisplayName(const String& path) {
     String name = path;
@@ -441,9 +441,9 @@ void startBluetoothDevice(uint8_t deviceIndex) {
     Serial.println(savedBTDevice);
     bt_connected = false;
 
-// Start the selected Bluetooth device.
-// Bluetooth scan callback.
-// Save the selected Bluetooth device.
+    // Bluetooth scan callback.
+    // Save the selected Bluetooth device.
+    // Vector icon drawing helpers.
     a2dp_source.end(false);
     delay(250);
     if (hasSavedBTAddress) {
@@ -471,7 +471,7 @@ bool bluetoothScanCallback(const char* name, esp_bd_addr_t address, int rssi) {
         Serial.println(rssi);
         btScanCount++;
     }
-// Vector icon drawing helpers.
+    return false; // Main menu rendering.
 }
 
 void startBluetoothScan() {
@@ -519,7 +519,7 @@ void selectBluetoothScanResult(uint8_t index) {
 }
 
 // =====================================================================================
-// Draw the main menu.
+// Settings screen rendering.
 // =====================================================================================
 void drawPlayIcon(int cx, int cy, int size, uint16_t color) {
     tft.fillTriangle(cx - size / 2, cy - size / 2, cx - size / 2, cy + size / 2, cx + size / 2, cy, color);
@@ -618,8 +618,8 @@ void drawNavIcon(uint8_t index, int cx, int cy, uint16_t color) {
 }
 
 void maskCoverCorners(int x, int y, int w, int h, int radius) {
-// Draw the settings screen.
-// Draw the playback settings screen.
+    // Playback settings rendering.
+    // Screen settings rendering.
     for (int py = 0; py < radius; py++) {
         for (int px = 0; px < radius; px++) {
             int dx = radius - 1 - px;
@@ -661,9 +661,9 @@ void drawBottomNavigation(uint8_t activeTab) {
     }
 }
 
-// Draw the screen settings screen.
+// Theme settings rendering.
 void drawCoverArt(int x, int y, int w, int h) {
-// Draw the theme selection screen.
+    // Screen lock rendering.
     tft.fillRect(x, y, w, h, COLOR_BG);
     if (total_tracks == 0) {
         drawVectorMusicNote(x, y, w, h, COLOR_ACCENT);
@@ -695,7 +695,7 @@ void drawCoverArt(int x, int y, int w, int h) {
 }
 
 // =====================================================================================
-// Draw the locked screen.
+// Information screen rendering.
 // =====================================================================================
 void drawMainMenu() {
     tft.fillScreen(COLOR_BG);
@@ -871,10 +871,10 @@ void drawPlayerScreen() {
     tft.fillScreen(COLOR_BG);
     drawHeader("NOW PLAYING");
 
-// Draw the information screen.
+    // Player screen rendering.
     drawCoverArt(PL_ART_X, PL_ART_Y, PL_ART_W, PL_ART_H);
 
-// Draw the player screen.
+    // Track list rendering.
     String rawName = (total_tracks > 0) ? trackDisplayName(playlist[current_track_index]) : "No tracks!";
 
     String artist = "Unknown Artist";
@@ -897,11 +897,11 @@ void drawPlayerScreen() {
 
     updateLikeButton();
 
-// Draw the track list.
+    // Bluetooth manager rendering.
     tft.fillRoundRect(PL_PROGRESS_X, PL_PROGRESS_Y, PL_PROGRESS_W, PL_PROGRESS_H, PL_PROGRESS_H / 2, COLOR_TRACK_BG);
     updateProgressBar(true);
 
-// Draw the Bluetooth manager.
+    // Bluetooth scan rendering.
     tft.fillRoundRect(PL_PREV_X, PL_BTN_Y, PL_PREV_W, PL_BTN_H, 10, COLOR_PANEL);
     tft.drawRoundRect(PL_PREV_X, PL_BTN_Y, PL_PREV_W, PL_BTN_H, 10, COLOR_PANEL_BORDER);
     drawPrevIcon(PL_PREV_X + PL_PREV_W / 2, PL_BTN_Y + PL_BTN_H / 2, 16, COLOR_TEXT_PRIMARY);
@@ -912,7 +912,7 @@ void drawPlayerScreen() {
 
     updatePlayPauseButton();
 
-// Draw the Bluetooth scan results.
+    // State-based UI rendering.
     tft.fillRoundRect(PL_VOLDOWN_X, PL_VOL_Y, PL_VOLDOWN_W, PL_VOL_H, 10, COLOR_PANEL);
     tft.drawRoundRect(PL_VOLDOWN_X, PL_VOL_Y, PL_VOLDOWN_W, PL_VOL_H, 10, COLOR_PANEL_BORDER);
     tft.setTextColor(COLOR_TEXT_PRIMARY);
@@ -1055,7 +1055,10 @@ void drawBTManagerScreen() {
     tft.fillRoundRect(20, 224, SCREEN_W - 40, 34, 9, COLOR_PANEL);
     tft.drawRoundRect(20, 224, SCREEN_W - 40, 34, 9, COLOR_PANEL_BORDER);
     tft.drawCentreString("SCAN DEVICES", SCREEN_W / 2, 233, 2);
-    drawBottomNavigation(4);\n}
+    drawBottomNavigation(4);
+    return;
+
+}
 
 void drawBluetoothScanScreen() {
     tft.fillScreen(COLOR_BG);
@@ -1092,7 +1095,7 @@ void drawCurrentStateUI() {
     }
 }
 
-// Draw the current UI state.
+// A2DP audio callback.
 String truncateToWidth(const String& text, int maxWidth, uint8_t font) {
     if (tft.textWidth(text, font) <= maxWidth) return text;
     String result = text;
@@ -1105,8 +1108,8 @@ String truncateToWidth(const String& text, int maxWidth, uint8_t font) {
 int32_t get_sound_data(Frame *data, int32_t frame_count) {
     if (pcm_frame_queue == NULL) return 0;
     if (!is_playing) {
-// Audio callback for the A2DP source.
-// MP3 decoder task.
+        // MP3 decoder task.
+        // Audio frame resampling.
         memset(data, 0, frame_count * sizeof(Frame));
         return frame_count;
     }
@@ -1124,16 +1127,16 @@ int32_t get_sound_data(Frame *data, int32_t frame_count) {
 }
 
 // =====================================================================================
-// Touchscreen event handling.
+// Frame interpolation.
 // =====================================================================================
 void mp3DecoderTask(void *pvParameters) {
     mp3dec_init(&mp3d);
     size_t read_offset = 0;
     size_t read_len = 0;
 
-// Handle the global navigation bar.
+    // Global touch handling.
     uint32_t last_hz = 0; 
-// Handle the player controls.
+    uint32_t step = 65536; // Fixed-point resampling step.
 
     while (true) {
         if (decoder_reset_requested) {
@@ -1165,32 +1168,32 @@ void mp3DecoderTask(void *pvParameters) {
         if (samples > 0) {
             read_offset += info.frame_bytes;
 
-// Handle track list selection.
+            // Track selection handling.
             if (info.hz != last_hz && info.hz > 0) {
                 last_hz = info.hz;
                 step = ((uint32_t)info.hz << 16) / 44100;
             }
 
-// Handle settings navigation.
+            // Settings navigation handling.
             if (last_hz != 44100) {
                 uint32_t acc = 0;
                 while ((acc >> 16) < (uint32_t)(samples - 1)) {
                     uint32_t idx = acc >> 16;
-// Handle playback settings.
+                    uint32_t frac = acc & 0xFFFF; // Fractional interpolation position.
 
                     Frame f;
                     if (info.channels == 2) {
-// Handle screen settings.
+                        // Screen option handling.
                         int32_t s1_l = pcm_output_buffer[idx * 2];
                         int32_t s2_l = pcm_output_buffer[(idx + 1) * 2];
                         f.channel1 = s1_l + (((s2_l - s1_l) * (int32_t)frac) >> 16);
 
-// Handle theme selection.
+                        // Theme option handling.
                         int32_t s1_r = pcm_output_buffer[idx * 2 + 1];
                         int32_t s2_r = pcm_output_buffer[(idx + 1) * 2 + 1];
                         f.channel2 = s1_r + (((s2_r - s1_r) * (int32_t)frac) >> 16);
                     } else {
-// Handle reset confirmation.
+                        // Reset confirmation handling.
                         int32_t s1 = pcm_output_buffer[idx];
                         int32_t s2 = pcm_output_buffer[idx + 1];
                         f.channel1 = f.channel2 = s1 + (((s2 - s1) * (int32_t)frac) >> 16);
@@ -1199,7 +1202,7 @@ void mp3DecoderTask(void *pvParameters) {
                     acc += step;
                 }
             } else {
-// Handle Bluetooth manager actions.
+                // Bluetooth manager handling.
                 for (int i = 0; i < samples; i++) {
                     Frame f;
                     if (info.channels == 2) {
@@ -1227,14 +1230,14 @@ void mp3DecoderTask(void *pvParameters) {
 }
 
 // =====================================================================================
-// Handle Bluetooth scan selection.
+// Bluetooth scan handling.
 // =====================================================================================
 bool pointInRect(int x, int y, int rx, int ry, int rw, int rh) {
     return (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh);
 }
 
 void processGlobalTouch(int x, int y) {
-// Initialize the display and input devices.
+    // Display and touch initialization.
     if (y < HEADER_H && x >= SCREEN_W - 42) {
         currentState = STATE_BT_MANAGER;
         drawCurrentStateUI();
@@ -1266,7 +1269,7 @@ void processGlobalTouch(int x, int y) {
         } else if (x >= 192) {
             currentState = STATE_SETTINGS;
         } else {
-// Load persisted settings.
+            return; // Load saved Bluetooth settings.
         }
         drawCurrentStateUI();
         return;
@@ -1524,7 +1527,7 @@ void setup() {
     tft.init();
     ledcAttach(TFT_BL_PIN, 5000, 8);
     ledcWrite(TFT_BL_PIN, screenBrightness);
-// Initialize Bluetooth A2DP.
+    tft.setRotation(0); // Load saved audio settings.
     initColorTheme();
     
     tft.fillScreen(COLOR_BG);
@@ -1538,13 +1541,13 @@ void setup() {
 
     delay(200);
 
-// Start the decoder task.
+    // Load saved screen settings.
     preferences.begin("bt_pref", false);
     savedBTDeviceIndex = preferences.getUChar("device_idx", 255);
     String storedBTName = preferences.getString("bt_name", BT_DEVICES[0]);
     preferences.end();
 
-// Main application loop.
+    // Initialize the SD card.
     if (savedBTDeviceIndex >= BT_DEVICE_COUNT) {
         savedBTDeviceIndex = 0;
         for (uint8_t i = 0; i < BT_DEVICE_COUNT; i++) {
@@ -1563,7 +1566,7 @@ void setup() {
     }
     preferences.end();
 
-// Advance to the next track when playback reaches the end.
+    // Initialize Bluetooth A2DP.
     preferences.begin("vol_pref", false);
     bt_volume = preferences.getUChar("volume", 70); 
     preferences.end();
@@ -1619,7 +1622,7 @@ void setup() {
         }
     }
 
-// Expire Bluetooth scan mode after its timeout.
+    // Start the decoder task.
     if (hasSavedBTAddress) {
         a2dp_source.set_auto_reconnect(savedBTAddress, 1);
     }
@@ -1631,7 +1634,7 @@ void setup() {
         Serial.println("[BT] Auto-connect requested for saved MAC");
     }
 
-// Periodically update Bluetooth status.
+    // Main application loop.
     BaseType_t decoderResult = xTaskCreatePinnedToCore(
         mp3DecoderTask, "MP3Dec", 20480, NULL, 3, &mp3DecoderTaskHandle, 1);
     Serial.printf("[Audio] decoder task: %s\n", decoderResult == pdPASS ? "started" : "FAILED");
@@ -1650,7 +1653,7 @@ void loop() {
     static uint8_t last_scan_count = 0;
 
 
-// Update the player progress bar.
+    // Advance to the next track.
     if (need_next_track) {
         need_next_track = false;
         switchTrack(1);
@@ -1667,7 +1670,7 @@ void loop() {
         if (!screenLocked) drawCurrentStateUI();
     }
 
-// Read and debounce touchscreen input.
+    // Bluetooth scan timeout handling.
     unsigned long now = millis();
     if (!screenLocked && screenTimeoutMinutes > 0 && now - lastScreenActivity >= (unsigned long)screenTimeoutMinutes * 60000UL) {
         screenLocked = true;
@@ -1707,13 +1710,13 @@ void loop() {
         last_bt_status_check = now;
     }
 
-// Update the progress bar only while the screen is visible.
+    // Periodic Bluetooth status check.
     if (!screenLocked && is_playing && currentState == STATE_PLAYER && (now - last_progress_update > 400)) {
         updateProgressBar();
         last_progress_update = now;
     }
 
-// Update the progress bar only while the screen is visible.
+    // Visible progress bar update.
     if (touchscreen.touched()) {
         TS_Point p = touchscreen.getPoint();
 
@@ -1725,13 +1728,13 @@ void loop() {
         const bool INVERT_TOUCH_X = false; 
         const bool INVERT_TOUCH_Y = false; 
 
-// Update the progress bar only while the screen is visible.
+        // Touch coordinate conversion.
         int rawX = map(p.x, 200, 3700, 0, SCREEN_W - 1);
         int rawY = map(p.y, 240, 3800, 0, SCREEN_H - 1);
         rawX = constrain(rawX, 0, SCREEN_W - 1);
         rawY = constrain(rawY, 0, SCREEN_H - 1);
 
-// Update the progress bar only while the screen is visible.
+        // Touch debounce and debug logging.
         int x = INVERT_TOUCH_X ? (SCREEN_W - rawX) : rawX;
         int y = INVERT_TOUCH_Y ? (SCREEN_H - rawY) : rawY;
 
@@ -1744,7 +1747,7 @@ void loop() {
             return;
         }
 
-// Update the progress bar only while the screen is visible.
+        // Internal player implementation.
         Serial.printf("[Touch] x=%d, y=%d (Current State: %d)\n", x, y, currentState);
 
         if (millis() - last_touch_time > 300) {
