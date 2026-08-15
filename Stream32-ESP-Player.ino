@@ -1,5 +1,5 @@
 // =====================================================================================
-//  ESP32-2432S028 (CYD) — Bluetooth MP3 Player (v3.5: Линейный ресемплер звука)
+// English implementation note
 // =====================================================================================
 
 #include <Arduino.h>
@@ -7,7 +7,7 @@
 #include <SD.h>
 #include <TFT_eSPI.h>            
 #include <XPT2046_Touchscreen.h> 
-#include <Preferences.h>         // Для сохранения настроек (громкость, BT-устройство)
+#include <Preferences.h>         // English implementation note
 #include "BluetoothA2DPSource.h"
 #include "esp_gap_bt_api.h"
 
@@ -15,7 +15,7 @@
 #include "minimp3.h"
 
 // =====================================================================================
-//  НАСТРОЙКИ И ПИНЫ ИНТЕРФЕЙСОВ
+// English implementation note
 // =====================================================================================
 constexpr uint8_t SD_CS = 5;
 #define XPT2046_IRQ 36
@@ -30,7 +30,7 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 Preferences preferences;
 
 // =====================================================================================
-//  СОСТОЯНИЯ ИНТЕРФЕЙСА (КОНЕЧНЫЙ АВТОМАТ)
+// English implementation note
 // =====================================================================================
 enum UIState {
     STATE_MENU,
@@ -49,7 +49,7 @@ enum UIState {
 UIState currentState = STATE_MENU;
 
 // =====================================================================================
-//  ЦВЕТОВАЯ ТЕМА (Dark Mode, бирюзовый акцент)
+// English implementation note
 // =====================================================================================
 static uint16_t COLOR_BG;             
 static uint16_t COLOR_PANEL;          
@@ -111,9 +111,9 @@ void applyTheme(uint8_t theme) {
 }
 
 // =====================================================================================
-//  ГЕОМЕТРИЯ ЭКРАНА (320x240, rotation = 1)
+// English implementation note
 // =====================================================================================
-// Портретная ориентация: поворот дисплея на 90° вправо.
+// English implementation note
 constexpr int SCREEN_W = 240;
 constexpr int SCREEN_H = 320;
 
@@ -126,38 +126,38 @@ constexpr int MENU_BTN_Y[3] = {48, 128, 208};
 constexpr int NAV_Y = 280;
 constexpr int NAV_H = 40;
 
-// Левая панель с обложкой (Внешняя рамка 110х110)
+// English implementation note
 constexpr int PL_ART_X = 65, PL_ART_Y = 38, PL_ART_W = 110, PL_ART_H = 110;
 
-// Текстовая зона справа
+// English implementation note
 constexpr int PL_INFO_X = 20;
 constexpr int PL_TITLE_Y = 153;
 constexpr int PL_ARTIST_Y = 174;
 constexpr int PL_HEART_CX = 220, PL_HEART_CY = 158, PL_HEART_R = 9;
 
-// Прогресс-бар
+// English implementation note
 constexpr int PL_PROGRESS_X = 20, PL_PROGRESS_Y = 191, PL_PROGRESS_W = 200, PL_PROGRESS_H = 8;
 
-// Кнопки управления справа внизу
+// English implementation note
 constexpr int PL_BTN_Y = 207, PL_BTN_H = 32;
 constexpr int PL_PREV_X = 25, PL_PREV_W = 45;
 constexpr int PL_PLAY_X = 97, PL_PLAY_W = 46;
 constexpr int PL_NEXT_X = 170, PL_NEXT_W = 45;
 
-// Кнопки громкости взамен слайдера (Ряд 2)
+// English implementation note
 constexpr int PL_VOL_Y = 245, PL_VOL_H = 25;
 constexpr int PL_VOLDOWN_X = 20, PL_VOLDOWN_W = 40;
 constexpr int PL_VOLUP_X = 180, PL_VOLUP_W = 40;
 constexpr int PL_VOLTEXT_X = 70, PL_VOLTEXT_W = 100;
 
-// Списки
+// English implementation note
 constexpr int LIST_ITEMS_PER_PAGE = 6;
 constexpr int LIST_ITEM_H = 26;
 constexpr int LIST_ITEM_Y_START = 45;
 constexpr int LIST_ITEM_GAP = 2;
 
 // =====================================================================================
-//  БУФЕРЫ ДЕКОДЕРА / АУДИО
+// English implementation note
 // =====================================================================================
 #define READ_BUF_SIZE 2048
 static uint8_t mp3_read_buf[READ_BUF_SIZE];
@@ -179,7 +179,7 @@ static volatile size_t g_file_size = 0;
 static volatile size_t g_file_bytes_read = 0;
 
 // =====================================================================================
-//  ПЛЕЙЛИСТ, ЛАЙКИ И ГРОМКОСТЬ
+// English implementation note
 // =====================================================================================
 #define MAX_TRACKS 50
 String playlist[MAX_TRACKS];
@@ -195,12 +195,12 @@ int likesList_currentPage = 0;
 
 static uint8_t bt_volume = 70;
 static bool autoPlayEnabled = false;
-constexpr const char* PLAYER_VERSION = "0.0.9-beta";
+constexpr const char* PLAYER_VERSION = "0.0.10-beta";
 
 // =============================================================================
-// СПИСОК BLUETOOTH-УСТРОЙСТВ
-// Добавляйте новые имена в этот массив. Порядок соответствует переключению
-// кнопкой SWITCH DEVICE на экране Bluetooth.
+// English implementation note
+// English implementation note
+// English implementation note
 // =============================================================================
 const char* const BT_DEVICES[] = {
     "BD2",
@@ -245,7 +245,7 @@ void onBluetoothAudioState(esp_a2d_audio_state_t state, void *obj) {
     }
 }
 
-// === ПРОТОТИПЫ ФУНКЦИЙ (Для бесконфликтной компиляции) ===
+// English implementation note
 void drawCurrentStateUI();
 void updatePlayPauseButton();
 void updateLikeButton();
@@ -261,7 +261,7 @@ void startBluetoothScan();
 void selectBluetoothScanResult(uint8_t index);
 
 // =====================================================================================
-//  БЕЗОПАСНАЯ ПЕРЕМОТКА (SEEK)
+// English implementation note
 // =====================================================================================
 void seekToRatio(float ratio) {
     if (g_file_size == 0 || !audioFile) return;
@@ -281,7 +281,7 @@ void seekToRatio(float ratio) {
 }
 
 // =====================================================================================
-//  ЗАГРУЗКА SD (Папка /tracks/)
+// English implementation note
 // =====================================================================================
 String trackDisplayName(const String& path) {
     String name = path;
@@ -433,9 +433,9 @@ void startBluetoothDevice(uint8_t deviceIndex) {
     Serial.println(savedBTDevice);
     bt_connected = false;
 
-    // start() повторно на уже работающем объекте не меняет список целей.
-    // end(false) корректно останавливает старый профиль, после чего start()
-    // поднимает A2DP Source уже с новым именем.
+    // English implementation note
+    // English implementation note
+    // English implementation note
     a2dp_source.end(false);
     delay(250);
     if (hasSavedBTAddress) {
@@ -463,7 +463,7 @@ bool bluetoothScanCallback(const char* name, esp_bd_addr_t address, int rssi) {
         Serial.println(rssi);
         btScanCount++;
     }
-    return false; // продолжаем поиск остальных устройств
+    return false; // English implementation note
 }
 
 void startBluetoothScan() {
@@ -511,7 +511,7 @@ void selectBluetoothScanResult(uint8_t index) {
 }
 
 // =====================================================================================
-//  РИСОВАНИЕ ВЕКТОРНЫХ ИКОНОК
+// English implementation note
 // =====================================================================================
 void drawPlayIcon(int cx, int cy, int size, uint16_t color) {
     tft.fillTriangle(cx - size / 2, cy - size / 2, cx - size / 2, cy + size / 2, cx + size / 2, cy, color);
@@ -610,8 +610,8 @@ void drawNavIcon(uint8_t index, int cx, int cy, uint16_t color) {
 }
 
 void maskCoverCorners(int x, int y, int w, int h, int radius) {
-    // Перекрываем каждый пиксель за пределами окружности. Это убирает
-    // квадратные углы RAW-картинки независимо от цвета самой обложки.
+    // English implementation note
+    // English implementation note
     for (int py = 0; py < radius; py++) {
         for (int px = 0; px < radius; px++) {
             int dx = radius - 1 - px;
@@ -653,9 +653,9 @@ void drawBottomNavigation(uint8_t activeTab) {
     }
 }
 
-// Отрисовка обложки трека с SD-карты из папки /tracks/
+// English implementation note
 void drawCoverArt(int x, int y, int w, int h) {
-    // Убираем старую рамку/остатки предыдущей обложки.
+    // English implementation note
     tft.fillRect(x, y, w, h, COLOR_BG);
     if (total_tracks == 0) {
         drawVectorMusicNote(x, y, w, h, COLOR_ACCENT);
@@ -687,7 +687,7 @@ void drawCoverArt(int x, int y, int w, int h) {
 }
 
 // =====================================================================================
-//  ЭКРАНЫ ИНТЕРФЕЙСА (ОТРИСОВКА СТРАНИЦ)
+// English implementation note
 // =====================================================================================
 void drawMainMenu() {
     tft.fillScreen(COLOR_BG);
@@ -863,10 +863,10 @@ void drawPlayerScreen() {
     tft.fillScreen(COLOR_BG);
     drawHeader("NOW PLAYING");
 
-    // Левая обложка
+    // English implementation note
     drawCoverArt(PL_ART_X, PL_ART_Y, PL_ART_W, PL_ART_H);
 
-    // Текстовые поля
+    // English implementation note
     String rawName = (total_tracks > 0) ? trackDisplayName(playlist[current_track_index]) : "No tracks!";
 
     String artist = "Unknown Artist";
@@ -889,11 +889,11 @@ void drawPlayerScreen() {
 
     updateLikeButton();
 
-    // Прогресс-бар
+    // English implementation note
     tft.fillRoundRect(PL_PROGRESS_X, PL_PROGRESS_Y, PL_PROGRESS_W, PL_PROGRESS_H, PL_PROGRESS_H / 2, COLOR_TRACK_BG);
     updateProgressBar(true);
 
-    // Блок кнопок управления
+    // English implementation note
     tft.fillRoundRect(PL_PREV_X, PL_BTN_Y, PL_PREV_W, PL_BTN_H, 10, COLOR_PANEL);
     tft.drawRoundRect(PL_PREV_X, PL_BTN_Y, PL_PREV_W, PL_BTN_H, 10, COLOR_PANEL_BORDER);
     drawPrevIcon(PL_PREV_X + PL_PREV_W / 2, PL_BTN_Y + PL_BTN_H / 2, 16, COLOR_TEXT_PRIMARY);
@@ -904,7 +904,7 @@ void drawPlayerScreen() {
 
     updatePlayPauseButton();
 
-    // Блок громкости
+    // English implementation note
     tft.fillRoundRect(PL_VOLDOWN_X, PL_VOL_Y, PL_VOLDOWN_W, PL_VOL_H, 10, COLOR_PANEL);
     tft.drawRoundRect(PL_VOLDOWN_X, PL_VOL_Y, PL_VOLDOWN_W, PL_VOL_H, 10, COLOR_PANEL_BORDER);
     tft.setTextColor(COLOR_TEXT_PRIMARY);
@@ -1064,14 +1064,14 @@ void drawBTManagerScreen() {
     tft.setTextColor(bt_connected ? COLOR_ACCENT : COLOR_HEART_INACTIVE);
     tft.drawString(bt_connected ? "CONNECTED" : "DISCONNECTED", 80, 98, 2);
 
-    // Кнопка подключения/отключения
+    // English implementation note
     tft.fillRoundRect(20, 130, SCREEN_W - 40, 40, 8, bt_connected ? COLOR_HEART_ACTIVE : COLOR_ACCENT);
     tft.drawRoundRect(20, 130, SCREEN_W - 40, 40, 8, COLOR_PANEL_BORDER);
     tft.setTextColor(COLOR_BG);
     tft.setTextDatum(MC_DATUM); 
     tft.drawCentreString(bt_connected ? "DISCONNECT" : "CONNECT NOW", SCREEN_W / 2, 142, 4);
 
-    // Смена наушников
+    // English implementation note
     tft.fillRoundRect(20, 185, SCREEN_W - 40, 40, 8, COLOR_PANEL);
     tft.drawRoundRect(20, 185, SCREEN_W - 40, 40, 8, COLOR_PANEL_BORDER);
     tft.setTextColor(COLOR_TEXT_PRIMARY);
@@ -1114,7 +1114,7 @@ void drawCurrentStateUI() {
     }
 }
 
-// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+// English implementation note
 String truncateToWidth(const String& text, int maxWidth, uint8_t font) {
     if (tft.textWidth(text, font) <= maxWidth) return text;
     String result = text;
@@ -1127,8 +1127,8 @@ String truncateToWidth(const String& text, int maxWidth, uint8_t font) {
 int32_t get_sound_data(Frame *data, int32_t frame_count) {
     if (pcm_frame_queue == NULL) return 0;
     if (!is_playing) {
-        // Не возвращаем 0: A2DP воспринимает это как underrun и может
-        // остановить медиапоток. Во время паузы отдаём цифровую тишину.
+        // English implementation note
+        // English implementation note
         memset(data, 0, frame_count * sizeof(Frame));
         return frame_count;
     }
@@ -1146,16 +1146,16 @@ int32_t get_sound_data(Frame *data, int32_t frame_count) {
 }
 
 // =====================================================================================
-//  ЗАДАЧА ДЕКОДЕРА MP3 (С качественным программным ресемплингом 16.16)
+// English implementation note
 // =====================================================================================
 void mp3DecoderTask(void *pvParameters) {
     mp3dec_init(&mp3d);
     size_t read_offset = 0;
     size_t read_len = 0;
 
-    // Вспомогательный счетчик для программного ресемплинга
+    // English implementation note
     uint32_t last_hz = 0; 
-    uint32_t step = 65536; // 1.0 в фиксированной точке 16.16
+    uint32_t step = 65536; // English implementation note
 
     while (true) {
         if (decoder_reset_requested) {
@@ -1187,32 +1187,32 @@ void mp3DecoderTask(void *pvParameters) {
         if (samples > 0) {
             read_offset += info.frame_bytes;
 
-            // Вычисляем шаг интерполяции при изменении частоты дискретизации
+            // English implementation note
             if (info.hz != last_hz && info.hz > 0) {
                 last_hz = info.hz;
                 step = ((uint32_t)info.hz << 16) / 44100;
             }
 
-            // Качественная интерполяция звука
+            // English implementation note
             if (last_hz != 44100) {
                 uint32_t acc = 0;
                 while ((acc >> 16) < (uint32_t)(samples - 1)) {
                     uint32_t idx = acc >> 16;
-                    uint32_t frac = acc & 0xFFFF; // Дробная часть
+                    uint32_t frac = acc & 0xFFFF; // English implementation note
 
                     Frame f;
                     if (info.channels == 2) {
-                        // Левый канал
+                        // English implementation note
                         int32_t s1_l = pcm_output_buffer[idx * 2];
                         int32_t s2_l = pcm_output_buffer[(idx + 1) * 2];
                         f.channel1 = s1_l + (((s2_l - s1_l) * (int32_t)frac) >> 16);
 
-                        // Правый канал
+                        // English implementation note
                         int32_t s1_r = pcm_output_buffer[idx * 2 + 1];
                         int32_t s2_r = pcm_output_buffer[(idx + 1) * 2 + 1];
                         f.channel2 = s1_r + (((s2_r - s1_r) * (int32_t)frac) >> 16);
                     } else {
-                        // Моно-сигнал
+                        // English implementation note
                         int32_t s1 = pcm_output_buffer[idx];
                         int32_t s2 = pcm_output_buffer[idx + 1];
                         f.channel1 = f.channel2 = s1 + (((s2 - s1) * (int32_t)frac) >> 16);
@@ -1221,7 +1221,7 @@ void mp3DecoderTask(void *pvParameters) {
                     acc += step;
                 }
             } else {
-                // Если частота совпадает с 44100 Гц — отдаем напрямую (экономим CPU)
+                // English implementation note
                 for (int i = 0; i < samples; i++) {
                     Frame f;
                     if (info.channels == 2) {
@@ -1249,14 +1249,14 @@ void mp3DecoderTask(void *pvParameters) {
 }
 
 // =====================================================================================
-//  ОБРАБОТКА КАСАНИЙ ЭКРАНА
+// English implementation note
 // =====================================================================================
 bool pointInRect(int x, int y, int rx, int ry, int rw, int rh) {
     return (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh);
 }
 
 void processGlobalTouch(int x, int y) {
-    // Верхний Bluetooth-индикатор всегда открывает настройки Bluetooth.
+    // English implementation note
     if (y < HEADER_H && x >= SCREEN_W - 42) {
         currentState = STATE_BT_MANAGER;
         drawCurrentStateUI();
@@ -1288,7 +1288,7 @@ void processGlobalTouch(int x, int y) {
         } else if (x >= 192) {
             currentState = STATE_SETTINGS;
         } else {
-            return; // Радио пока является зарезервированным разделом.
+            return; // English implementation note
         }
         drawCurrentStateUI();
         return;
@@ -1534,7 +1534,7 @@ void processGlobalTouch(int x, int y) {
 
 #if 0
 // =====================================================================================
-//  WI-FI ЗАГРУЗЧИК МУЗЫКИ (отключено)
+// English implementation note
 // =====================================================================================
 void setupWebUploader() {
     WiFi.mode(WIFI_AP);
@@ -1649,7 +1649,7 @@ void setup() {
     tft.init();
     ledcAttach(TFT_BL_PIN, 5000, 8);
     ledcWrite(TFT_BL_PIN, screenBrightness);
-    tft.setRotation(0); // Портретная ориентация, поворот на 90° вправо
+    tft.setRotation(0); // English implementation note
     initColorTheme();
     
     tft.fillScreen(COLOR_BG);
@@ -1663,13 +1663,13 @@ void setup() {
 
     delay(200);
 
-    // Загрузка BT-устройства из NVS памяти
+    // English implementation note
     preferences.begin("bt_pref", false);
     savedBTDeviceIndex = preferences.getUChar("device_idx", 255);
     String storedBTName = preferences.getString("bt_name", BT_DEVICES[0]);
     preferences.end();
 
-    // Совместимость со старыми прошивками, где сохранялось только имя.
+    // English implementation note
     if (savedBTDeviceIndex >= BT_DEVICE_COUNT) {
         savedBTDeviceIndex = 0;
         for (uint8_t i = 0; i < BT_DEVICE_COUNT; i++) {
@@ -1688,7 +1688,7 @@ void setup() {
     }
     preferences.end();
 
-    // Загрузка громкости из NVS памяти
+    // English implementation note
     preferences.begin("vol_pref", false);
     bt_volume = preferences.getUChar("volume", 70); 
     preferences.end();
@@ -1731,7 +1731,7 @@ void setup() {
         }
     }
 
-    // Инициализация Bluetooth
+    // English implementation note
     if (hasSavedBTAddress) {
         a2dp_source.set_auto_reconnect(savedBTAddress, 1);
     }
@@ -1743,7 +1743,7 @@ void setup() {
         Serial.println("[BT] Auto-connect requested for saved MAC");
     }
 
-    // Запуск декодера (Высокий приоритет 3 на Core 1)
+    // English implementation note
     BaseType_t decoderResult = xTaskCreatePinnedToCore(
         mp3DecoderTask, "MP3Dec", 20480, NULL, 3, &mp3DecoderTaskHandle, 1);
     Serial.printf("[Audio] decoder task: %s\n", decoderResult == pdPASS ? "started" : "FAILED");
@@ -1762,7 +1762,7 @@ void loop() {
     static uint8_t last_scan_count = 0;
 
 
-    // Автоматическое переключение на следующий трек
+    // English implementation note
     if (need_next_track) {
         need_next_track = false;
         switchTrack(1);
@@ -1779,7 +1779,7 @@ void loop() {
         if (!screenLocked) drawCurrentStateUI();
     }
 
-    // Периодическая проверка статуса Bluetooth (раз в 1.5 сек)
+    // English implementation note
     unsigned long now = millis();
     if (!screenLocked && screenTimeoutMinutes > 0 && now - lastScreenActivity >= (unsigned long)screenTimeoutMinutes * 60000UL) {
         screenLocked = true;
@@ -1815,13 +1815,13 @@ void loop() {
         last_bt_status_check = now;
     }
 
-    // Обновление прогресс-бара
+    // English implementation note
     if (!screenLocked && is_playing && currentState == STATE_PLAYER && (now - last_progress_update > 400)) {
         updateProgressBar();
         last_progress_update = now;
     }
 
-    // Чтение тачскрина
+    // English implementation note
     if (touchscreen.touched()) {
         TS_Point p = touchscreen.getPoint();
 
@@ -1833,13 +1833,13 @@ void loop() {
         const bool INVERT_TOUCH_X = false; 
         const bool INVERT_TOUCH_Y = false; 
 
-        // Идеальный горизонтальный маппинг
+        // English implementation note
         int rawX = map(p.x, 200, 3700, 0, SCREEN_W - 1);
         int rawY = map(p.y, 240, 3800, 0, SCREEN_H - 1);
         rawX = constrain(rawX, 0, SCREEN_W - 1);
         rawY = constrain(rawY, 0, SCREEN_H - 1);
 
-        // Коррекция направления
+        // English implementation note
         int x = INVERT_TOUCH_X ? (SCREEN_W - rawX) : rawX;
         int y = INVERT_TOUCH_Y ? (SCREEN_H - rawY) : rawY;
 
@@ -1852,7 +1852,7 @@ void loop() {
             return;
         }
 
-        // Отладочный вывод
+        // English implementation note
         Serial.printf("[Touch] x=%d, y=%d (Current State: %d)\n", x, y, currentState);
 
         if (millis() - last_touch_time > 300) {

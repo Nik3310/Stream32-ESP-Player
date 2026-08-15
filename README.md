@@ -2,7 +2,7 @@
 
 Stream32 Player is an experimental MP3 player for ESP32 with a TFT display, SD card storage, and Bluetooth A2DP audio output.
 
-**Current version: `0.0.9-beta`**
+**Current version: `0.0.10-beta`**
 
 This is a public beta release. The main features are working, but the firmware may still change and should be tested with your specific board and Bluetooth device.
 
