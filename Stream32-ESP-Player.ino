@@ -212,6 +212,8 @@ constexpr uint8_t BT_DEVICE_COUNT = sizeof(BT_DEVICES) / sizeof(BT_DEVICES[0]);
 uint8_t savedBTDeviceIndex = 0;
 String savedBTDevice = BT_DEVICES[0];
 static volatile bool bt_connected = false;
+static volatile bool bt_audio_started = false;
+static volatile bool play_requested = false;
 
 constexpr uint8_t MAX_BT_SCAN_RESULTS = 6;
 String btScanNames[MAX_BT_SCAN_RESULTS];
@@ -221,6 +223,27 @@ volatile bool btScanActive = false;
 unsigned long btScanStartedAt = 0;
 bool hasSavedBTAddress = false;
 esp_bd_addr_t savedBTAddress = {0, 0, 0, 0, 0, 0};
+
+void onBluetoothConnectionState(esp_a2d_connection_state_t state, void *obj) {
+    bool connected = (state == ESP_A2D_CONNECTION_STATE_CONNECTED);
+    bt_connected = connected;
+    if (!connected) {
+        if (is_playing) play_requested = true;
+        is_playing = false;
+        bt_audio_started = false;
+    }
+}
+
+void onBluetoothAudioState(esp_a2d_audio_state_t state, void *obj) {
+    bt_audio_started = (state == ESP_A2D_AUDIO_STATE_STARTED);
+    if (bt_audio_started && play_requested) {
+        decoder_reset_requested = true;
+        if (pcm_frame_queue) xQueueReset(pcm_frame_queue);
+        is_playing = true;
+    } else if (!bt_audio_started) {
+        is_playing = false;
+    }
+}
 
 // === ПРОТОТИПЫ ФУНКЦИЙ (Для бесконфликтной компиляции) ===
 void drawCurrentStateUI();
@@ -416,8 +439,10 @@ void startBluetoothDevice(uint8_t deviceIndex) {
     a2dp_source.end(false);
     delay(250);
     if (hasSavedBTAddress) {
-        a2dp_source.set_auto_reconnect(savedBTAddress, 3);
+        a2dp_source.set_auto_reconnect(savedBTAddress, 1);
     }
+    a2dp_source.set_on_connection_state_changed(onBluetoothConnectionState);
+    a2dp_source.set_on_audio_state_changed(onBluetoothAudioState);
     a2dp_source.start(savedBTDevice.c_str(), get_sound_data);
     a2dp_source.set_volume(bt_volume);
     xQueueReset(pcm_frame_queue);
@@ -474,7 +499,9 @@ void selectBluetoothScanResult(uint8_t index) {
     a2dp_source.set_ssid_callback(nullptr);
     a2dp_source.end(false);
     delay(250);
-    a2dp_source.set_auto_reconnect(savedBTAddress, 3);
+    a2dp_source.set_auto_reconnect(savedBTAddress, 1);
+    a2dp_source.set_on_connection_state_changed(onBluetoothConnectionState);
+    a2dp_source.set_on_audio_state_changed(onBluetoothAudioState);
     a2dp_source.start(savedBTDevice.c_str(), get_sound_data);
     a2dp_source.set_volume(bt_volume);
     xQueueReset(pcm_frame_queue);
@@ -1300,10 +1327,16 @@ void processGlobalTouch(int x, int y) {
             }
             else if (pointInRect(x, y, PL_PLAY_X, PL_BTN_Y, PL_PLAY_W, PL_BTN_H)) {
                 bool wasPlaying = is_playing;
-                is_playing = !is_playing;
-                if (!wasPlaying && is_playing) {
-                    decoder_reset_requested = true;
-                    xQueueReset(pcm_frame_queue);
+                if (wasPlaying) {
+                    is_playing = false;
+                    play_requested = false;
+                } else {
+                    play_requested = true;
+                    if (bt_audio_started) {
+                        decoder_reset_requested = true;
+                        xQueueReset(pcm_frame_queue);
+                        is_playing = true;
+                    }
                 }
                 updatePlayPauseButton();
             }
@@ -1700,8 +1733,10 @@ void setup() {
 
     // Инициализация Bluetooth
     if (hasSavedBTAddress) {
-        a2dp_source.set_auto_reconnect(savedBTAddress, 3);
+        a2dp_source.set_auto_reconnect(savedBTAddress, 1);
     }
+    a2dp_source.set_on_connection_state_changed(onBluetoothConnectionState);
+    a2dp_source.set_on_audio_state_changed(onBluetoothAudioState);
     a2dp_source.start(savedBTDevice.c_str(), get_sound_data);
     a2dp_source.set_volume(bt_volume);
     if (hasSavedBTAddress) {
@@ -1763,7 +1798,14 @@ void loop() {
         bool currentStatus = a2dp_source.is_connected();
         if (currentStatus != bt_connected) {
             bt_connected = currentStatus;
-            if (currentStatus && autoPlayEnabled && !is_playing) {
+            if (currentStatus && autoPlayEnabled) {
+                play_requested = true;
+            }
+            if (!currentStatus) {
+                bt_audio_started = false;
+                is_playing = false;
+            }
+            if (currentStatus && bt_audio_started && play_requested && !is_playing) {
                 decoder_reset_requested = true;
                 xQueueReset(pcm_frame_queue);
                 is_playing = true;
