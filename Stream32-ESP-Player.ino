@@ -174,6 +174,7 @@ static mp3dec_frame_info_t info;
 static TaskHandle_t mp3DecoderTaskHandle = NULL;
 static volatile bool is_playing = false;
 static volatile bool decoder_reset_requested = false;
+static SemaphoreHandle_t audioFileMutex = NULL;
 
 static volatile size_t g_file_size = 0;
 static volatile size_t g_file_bytes_read = 0;
@@ -213,6 +214,7 @@ String savedBTDevice = BT_DEVICES[0];
 static volatile bool bt_connected = false;
 static volatile bool bt_audio_started = false;
 static volatile bool play_requested = false;
+static volatile bool bt_state_changed = false;
 
 constexpr uint8_t MAX_BT_SCAN_RESULTS = 6;
 String btScanNames[MAX_BT_SCAN_RESULTS];
@@ -224,23 +226,35 @@ bool hasSavedBTAddress = false;
 esp_bd_addr_t savedBTAddress = {0, 0, 0, 0, 0, 0};
 
 void onBluetoothConnectionState(esp_a2d_connection_state_t state, void *obj) {
-    bool connected = (state == ESP_A2D_CONNECTION_STATE_CONNECTED);
-    bt_connected = connected;
-    if (!connected) {
-        if (is_playing) play_requested = true;
-        is_playing = false;
-        bt_audio_started = false;
-    }
+    bt_connected = (state == ESP_A2D_CONNECTION_STATE_CONNECTED);
+    if (!bt_connected) bt_audio_started = false;
+    bt_state_changed = true;
 }
 
 void onBluetoothAudioState(esp_a2d_audio_state_t state, void *obj) {
     bt_audio_started = (state == ESP_A2D_AUDIO_STATE_STARTED);
-    if (bt_audio_started && play_requested) {
+    bt_state_changed = true;
+}
+
+// All queue and decoder changes happen in the main loop, never in a Bluetooth callback.
+void updatePlaybackFromBluetooth() {
+    const bool audioReady = bt_connected && bt_audio_started;
+    if (!audioReady) {
+        if (is_playing) {
+            play_requested = true;
+            is_playing = false;
+            decoder_reset_requested = true;
+            if (pcm_frame_queue) xQueueReset(pcm_frame_queue);
+        }
+        return;
+    }
+
+    if (autoPlayEnabled) play_requested = true;
+    if (play_requested && !is_playing && audioFile && g_file_size > 0) {
         decoder_reset_requested = true;
         if (pcm_frame_queue) xQueueReset(pcm_frame_queue);
         is_playing = true;
-    } else if (!bt_audio_started) {
-        is_playing = false;
+        Serial.println("[Audio] A2DP stream ready; starting decoder");
     }
 }
 
@@ -254,6 +268,8 @@ String truncateToWidth(const String& text, int maxWidth, uint8_t font);
 int32_t get_sound_data(Frame *data, int32_t frame_count);
 void mp3DecoderTask(void *pvParameters);
 bool pointInRect(int x, int y, int rx, int ry, int rw, int rh);
+bool openCurrentTrack();
+void updatePlaybackFromBluetooth();
 void startBluetoothDevice(uint8_t deviceIndex);
 bool bluetoothScanCallback(const char* name, esp_bd_addr_t address, int rssi);
 void startBluetoothScan();
@@ -270,7 +286,14 @@ void seekToRatio(float ratio) {
     vTaskDelay(pdMS_TO_TICKS(40)); 
 
     size_t target_pos = (size_t)(ratio * g_file_size);
-    audioFile.seek(target_pos);
+    if (audioFileMutex) xSemaphoreTake(audioFileMutex, portMAX_DELAY);
+    bool seekOk = audioFile.seek(target_pos);
+    if (audioFileMutex) xSemaphoreGive(audioFileMutex);
+    if (!seekOk) {
+        Serial.println("[SD] Seek failed");
+        is_playing = was_playing;
+        return;
+    }
     g_file_bytes_read = target_pos;
 
     xQueueReset(pcm_frame_queue);
@@ -309,8 +332,8 @@ void sortPlaylist() {
 void loadPlaylist() {
     File dir = SD.open("/tracks");
     if (!dir) {
-        Serial.println("Папка /tracks не найдена!");
-        SD.mkdir("/tracks"); 
+        Serial.println("[SD] /tracks is missing; creating it");
+        SD.mkdir("/tracks");
         return;
     }
 
@@ -322,12 +345,12 @@ void loadPlaylist() {
         if (!entry.isDirectory()) {
             String fileName = entry.name();
             if (fileName.endsWith(".mp3") || fileName.endsWith(".MP3")) {
-                if (entry.size() > 0 && total_tracks < MAX_TRACKS) {
+                if (entry.size() >= 512 && total_tracks < MAX_TRACKS) {
                     playlist[total_tracks] = "/tracks/" + fileName;
                     isLiked[total_tracks] = false;
                     total_tracks++;
-                } else if (entry.size() == 0) {
-                    Serial.printf("[SD] Skipping empty track: %s\n", fileName.c_str());
+                } else {
+                    Serial.printf("[SD] Skipping invalid or too small MP3: %s\n", fileName.c_str());
                 }
             }
         }
@@ -335,6 +358,7 @@ void loadPlaylist() {
     }
     dir.close();
     sortPlaylist();
+    Serial.printf("[SD] Playlist loaded: %d track(s)\n", total_tracks);
 }
 
 void loadLikes() {
@@ -393,6 +417,30 @@ void saveResumeState() {
     preferences.end();
 }
 
+bool openCurrentTrack() {
+    if (current_track_index < 0 || current_track_index >= total_tracks) return false;
+
+    if (audioFileMutex) xSemaphoreTake(audioFileMutex, portMAX_DELAY);
+    if (audioFile) audioFile.close();
+
+    audioFile = SD.open(playlist[current_track_index].c_str(), FILE_READ);
+    bool opened = audioFile && !audioFile.isDirectory() && audioFile.size() >= 512;
+    if (opened) {
+        g_file_size = audioFile.size();
+        g_file_bytes_read = 0;
+        Serial.printf("[SD] Opened track: %s (%u bytes)\n",
+                      playlist[current_track_index].c_str(), (unsigned int)g_file_size);
+    } else {
+        if (audioFile) audioFile.close();
+        g_file_size = 0;
+        g_file_bytes_read = 0;
+        Serial.printf("[SD] Could not open a valid MP3: %s\n",
+                      playlist[current_track_index].c_str());
+    }
+    if (audioFileMutex) xSemaphoreGive(audioFileMutex);
+    return opened;
+}
+
 void switchTrack(int direction) {
     if (total_tracks == 0) return;
     saveResumeState();
@@ -402,24 +450,13 @@ void switchTrack(int direction) {
     decoder_reset_requested = true;
     vTaskDelay(pdMS_TO_TICKS(50)); 
 
-    if (audioFile) audioFile.close();
     xQueueReset(pcm_frame_queue);
 
     current_track_index += direction;
     if (current_track_index >= total_tracks) current_track_index = 0;
     if (current_track_index < 0) current_track_index = total_tracks - 1;
 
-    audioFile = SD.open(playlist[current_track_index].c_str());
-    if (audioFile) {
-        g_file_size = audioFile.size();
-        g_file_bytes_read = 0;
-        is_playing = wasPlaying;
-    } else {
-        Serial.printf("[SD] Could not open track: %s\n", playlist[current_track_index].c_str());
-        g_file_size = 0;
-        g_file_bytes_read = 0;
-        is_playing = false;
-    }
+    is_playing = wasPlaying && openCurrentTrack();
 
     if (currentState == STATE_PLAYER && !screenLocked) {
         drawCurrentStateUI();
@@ -440,6 +477,8 @@ void startBluetoothDevice(uint8_t deviceIndex) {
     Serial.print("[BT] Starting device: ");
     Serial.println(savedBTDevice);
     bt_connected = false;
+    bt_audio_started = false;
+    bt_state_changed = true;
 
     // Bluetooth scan callback.
     // Save the selected Bluetooth device.
@@ -504,6 +543,9 @@ void selectBluetoothScanResult(uint8_t index) {
     preferences.putBytes("bt_addr", savedBTAddress, ESP_BD_ADDR_LEN);
     preferences.end();
     btScanActive = false;
+    bt_connected = false;
+    bt_audio_started = false;
+    bt_state_changed = true;
     a2dp_source.set_ssid_callback(nullptr);
     a2dp_source.end(false);
     delay(250);
@@ -1152,15 +1194,21 @@ void mp3DecoderTask(void *pvParameters) {
             continue;
         }
 
-        if (read_len - read_offset < 1024 && audioFile && audioFile.available()) {
-            if (read_offset > 0) {
-                memmove(mp3_read_buf, mp3_read_buf + read_offset, read_len - read_offset);
-                read_len -= read_offset;
-                read_offset = 0;
+        if (read_len - read_offset < 1024) {
+            size_t bytesRead = 0;
+            if (audioFileMutex && xSemaphoreTake(audioFileMutex, pdMS_TO_TICKS(30)) == pdTRUE) {
+                if (audioFile && audioFile.available()) {
+                    if (read_offset > 0) {
+                        memmove(mp3_read_buf, mp3_read_buf + read_offset, read_len - read_offset);
+                        read_len -= read_offset;
+                        read_offset = 0;
+                    }
+                    bytesRead = audioFile.read(mp3_read_buf + read_len, READ_BUF_SIZE - read_len);
+                    read_len += bytesRead;
+                    g_file_bytes_read += bytesRead;
+                }
+                xSemaphoreGive(audioFileMutex);
             }
-            size_t bytesRead = audioFile.read(mp3_read_buf + read_len, READ_BUF_SIZE - read_len);
-            read_len += bytesRead;
-            g_file_bytes_read += bytesRead;
         }
 
         int samples = mp3dec_decode_frame(&mp3d, mp3_read_buf + read_offset, read_len - read_offset, pcm_output_buffer, &info);
@@ -1218,12 +1266,23 @@ void mp3DecoderTask(void *pvParameters) {
             if (info.frame_bytes > 0) {
                 read_offset += info.frame_bytes;
             }
-            else if (!audioFile || !audioFile.available()) {
-                need_next_track = true;
-                vTaskDelay(pdMS_TO_TICKS(100));
-            }
             else {
-                read_offset++;
+                bool fileEnded = true;
+                if (audioFileMutex && xSemaphoreTake(audioFileMutex, pdMS_TO_TICKS(30)) == pdTRUE) {
+                    fileEnded = !audioFile || !audioFile.available();
+                    xSemaphoreGive(audioFileMutex);
+                }
+                if (fileEnded) {
+                    need_next_track = true;
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                } else {
+                    if (read_offset + 1 < read_len) {
+                        read_offset++;
+                    } else {
+                        read_offset = 0;
+                        read_len = 0;
+                    }
+                }
             }
         }
     }
@@ -1314,11 +1373,7 @@ void processGlobalTouch(int x, int y) {
                     saveResumeState();
                 } else {
                     play_requested = true;
-                    if (bt_audio_started) {
-                        decoder_reset_requested = true;
-                        xQueueReset(pcm_frame_queue);
-                        is_playing = true;
-                    }
+                    updatePlaybackFromBluetooth();
                 }
                 updatePlayPauseButton();
             }
@@ -1584,6 +1639,13 @@ void setup() {
     applyScreenBrightness();
 
     pcm_frame_queue = xQueueCreate(PCM_QUEUE_SIZE, sizeof(Frame));
+    audioFileMutex = xSemaphoreCreateMutex();
+    if (!pcm_frame_queue || !audioFileMutex) {
+        tft.fillScreen(TFT_RED);
+        tft.setTextColor(TFT_WHITE);
+        tft.drawCentreString("Audio memory error", SCREEN_W / 2, 110, 2);
+        while (true) delay(1000);
+    }
 
     bool sdReady = SD.begin(SD_CS);
     if (!sdReady) {
@@ -1611,11 +1673,11 @@ void setup() {
         for (int i = 0; i < total_tracks; i++) {
             if (playlist[i] == resumeTrack) { current_track_index = i; break; }
         }
-        audioFile = SD.open(playlist[current_track_index].c_str());
-        if (audioFile) {
-            g_file_size = audioFile.size();
+        if (openCurrentTrack()) {
             size_t maxResume = g_file_size > 4096 ? (size_t)g_file_size - 4096 : (size_t)0;
             size_t safeResume = resumeBytes > maxResume ? maxResume : resumeBytes;
+            // Resume slightly before the saved read position so minimp3 can find a complete frame.
+            if (safeResume > 2048) safeResume -= 2048;
             if (safeResume > 0) audioFile.seek(safeResume);
             g_file_bytes_read = safeResume;
             is_playing = false;
@@ -1689,25 +1751,23 @@ void loop() {
                       (unsigned int)g_file_size,
                       bt_connected ? 1 : 0);
     }
-    if (now - last_bt_status_check > 1500) {
+    if (now - last_bt_status_check > 250) {
         bool currentStatus = a2dp_source.is_connected();
         if (currentStatus != bt_connected) {
             bt_connected = currentStatus;
-            if (currentStatus && autoPlayEnabled) {
-                play_requested = true;
-            }
-            if (!currentStatus) {
-                bt_audio_started = false;
-                is_playing = false;
-            }
-            if (currentStatus && bt_audio_started && play_requested && !is_playing) {
-                decoder_reset_requested = true;
-                xQueueReset(pcm_frame_queue);
-                is_playing = true;
-            }
-            if (!screenLocked) drawCurrentStateUI(); 
+            if (!currentStatus) bt_audio_started = false;
+            bt_state_changed = true;
         }
         last_bt_status_check = now;
+    }
+    if (bt_state_changed) {
+        bt_state_changed = false;
+        Serial.printf("[BT] state: connected=%d media=%d requested=%d\n",
+                      bt_connected ? 1 : 0,
+                      bt_audio_started ? 1 : 0,
+                      play_requested ? 1 : 0);
+        updatePlaybackFromBluetooth();
+        if (!screenLocked) drawCurrentStateUI();
     }
 
     // Periodic Bluetooth status check.
