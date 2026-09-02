@@ -215,6 +215,9 @@ static volatile bool bt_connected = false;
 static volatile bool bt_audio_started = false;
 static volatile bool play_requested = false;
 static volatile bool bt_state_changed = false;
+static volatile bool bt_connecting = false;
+static unsigned long play_request_started_at = 0;
+constexpr unsigned long A2DP_PLAY_PRIME_DELAY_MS = 350;
 
 constexpr uint8_t MAX_BT_SCAN_RESULTS = 6;
 String btScanNames[MAX_BT_SCAN_RESULTS];
@@ -227,6 +230,7 @@ esp_bd_addr_t savedBTAddress = {0, 0, 0, 0, 0, 0};
 
 void onBluetoothConnectionState(esp_a2d_connection_state_t state, void *obj) {
     bt_connected = (state == ESP_A2D_CONNECTION_STATE_CONNECTED);
+    if (bt_connected) bt_connecting = false;
     if (!bt_connected) bt_audio_started = false;
     bt_state_changed = true;
 }
@@ -238,8 +242,7 @@ void onBluetoothAudioState(esp_a2d_audio_state_t state, void *obj) {
 
 // All queue and decoder changes happen in the main loop, never in a Bluetooth callback.
 void updatePlaybackFromBluetooth() {
-    const bool audioReady = bt_connected && bt_audio_started;
-    if (!audioReady) {
+    if (!bt_connected) {
         if (is_playing) {
             play_requested = true;
             is_playing = false;
@@ -249,12 +252,20 @@ void updatePlaybackFromBluetooth() {
         return;
     }
 
-    if (autoPlayEnabled) play_requested = true;
-    if (play_requested && !is_playing && audioFile && g_file_size > 0) {
+    if (autoPlayEnabled && !play_requested) {
+        play_requested = true;
+        play_request_started_at = millis();
+    }
+    // Some headsets report A2DP media state only after the source begins supplying PCM.
+    // Prime the decoder shortly after a valid Play request instead of waiting forever for that callback.
+    const bool mayPrimeStream = play_requested &&
+                                (bt_audio_started ||
+                                 (millis() - play_request_started_at >= A2DP_PLAY_PRIME_DELAY_MS));
+    if (mayPrimeStream && !is_playing && audioFile && g_file_size > 0) {
         decoder_reset_requested = true;
         if (pcm_frame_queue) xQueueReset(pcm_frame_queue);
         is_playing = true;
-        Serial.println("[Audio] A2DP stream ready; starting decoder");
+        Serial.printf("[Audio] Starting decoder (media=%d)\n", bt_audio_started ? 1 : 0);
     }
 }
 
@@ -478,6 +489,7 @@ void startBluetoothDevice(uint8_t deviceIndex) {
     Serial.println(savedBTDevice);
     bt_connected = false;
     bt_audio_started = false;
+    bt_connecting = true;
     bt_state_changed = true;
 
     // Bluetooth scan callback.
@@ -516,6 +528,7 @@ bool bluetoothScanCallback(const char* name, esp_bd_addr_t address, int rssi) {
 void startBluetoothScan() {
     btScanCount = 0;
     btScanActive = true;
+    bt_connecting = false;
     btScanStartedAt = millis();
     if (a2dp_source.is_connected()) {
         a2dp_source.disconnect();
@@ -545,6 +558,7 @@ void selectBluetoothScanResult(uint8_t index) {
     btScanActive = false;
     bt_connected = false;
     bt_audio_started = false;
+    bt_connecting = true;
     bt_state_changed = true;
     a2dp_source.set_ssid_callback(nullptr);
     a2dp_source.end(false);
@@ -1087,7 +1101,7 @@ void drawBTManagerScreen() {
     drawBluetoothLogo(120, 92, 42, bt_connected ? COLOR_BT_CONNECTED : COLOR_BT_DISCONNECTED);
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(COLOR_TEXT_PRIMARY);
-    tft.drawCentreString(bt_connected ? "Connected" : "Disconnected", SCREEN_W / 2, 145, 2);
+    tft.drawCentreString(bt_connected ? "Connected" : (bt_connecting ? "Connecting..." : "Disconnected"), SCREEN_W / 2, 145, 2);
     tft.setTextColor(COLOR_TEXT_SECONDARY);
     tft.drawCentreString(savedBTDevice, SCREEN_W / 2, 164, 2);
     tft.fillRoundRect(20, 182, SCREEN_W - 40, 34, 9, COLOR_PANEL);
@@ -1373,6 +1387,7 @@ void processGlobalTouch(int x, int y) {
                     saveResumeState();
                 } else {
                     play_requested = true;
+                    play_request_started_at = millis();
                     updatePlaybackFromBluetooth();
                 }
                 updatePlayPauseButton();
@@ -1538,20 +1553,24 @@ void processGlobalTouch(int x, int y) {
         case STATE_BT_MANAGER: {
             if (pointInRect(x, y, 20, 182, SCREEN_W - 40, 34)) {
                 if (bt_connected) {
-                    Serial.println("[BT] Отключение...");
+                    Serial.println("[BT] Disconnect requested");
+                    bt_connecting = false;
                     a2dp_source.disconnect();
                 } else {
-                    Serial.println("[BT] Безопасное переподключение...");
+                    Serial.println("[BT] Reconnect requested");
+                    bt_connecting = true;
                     a2dp_source.reconnect();
                 }
                 delay(100);
                 bt_connected = a2dp_source.is_connected();
+                if (bt_connected) bt_connecting = false;
+                bt_state_changed = true;
                 drawCurrentStateUI();
             }
             else if (pointInRect(x, y, 20, 224, SCREEN_W - 40, 34)) {
                 startBluetoothScan();
                 
-                Serial.println("[BT] Смена целевого устройства...");
+                Serial.println("[BT] Device scan requested");
                 drawCurrentStateUI();
             }
             break;
@@ -1687,6 +1706,7 @@ void setup() {
     // Start the decoder task.
     if (hasSavedBTAddress) {
         a2dp_source.set_auto_reconnect(savedBTAddress, 1);
+        bt_connecting = true;
     }
     a2dp_source.set_on_connection_state_changed(onBluetoothConnectionState);
     a2dp_source.set_on_audio_state_changed(onBluetoothAudioState);
@@ -1744,12 +1764,14 @@ void loop() {
     }
     if (now - last_audio_debug > 2000) {
         last_audio_debug = now;
-        Serial.printf("[Audio] playing=%d queue=%d file=%u/%u bt=%d\n",
+        Serial.printf("[Audio] playing=%d queue=%d file=%u/%u bt=%d media=%d requested=%d\n",
                       is_playing ? 1 : 0,
                       pcm_frame_queue ? uxQueueMessagesWaiting(pcm_frame_queue) : 0,
                       (unsigned int)g_file_bytes_read,
                       (unsigned int)g_file_size,
-                      bt_connected ? 1 : 0);
+                      bt_connected ? 1 : 0,
+                      bt_audio_started ? 1 : 0,
+                      play_requested ? 1 : 0);
     }
     if (now - last_bt_status_check > 250) {
         bool currentStatus = a2dp_source.is_connected();
@@ -1768,6 +1790,11 @@ void loop() {
                       play_requested ? 1 : 0);
         updatePlaybackFromBluetooth();
         if (!screenLocked) drawCurrentStateUI();
+    }
+    if (play_requested && !is_playing && bt_connected &&
+        now - play_request_started_at >= A2DP_PLAY_PRIME_DELAY_MS) {
+        updatePlaybackFromBluetooth();
+        updatePlayPauseButton();
     }
 
     // Periodic Bluetooth status check.
